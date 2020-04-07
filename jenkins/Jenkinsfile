@@ -1,0 +1,82 @@
+pipeline {
+    agent {
+        dockerfile {
+            filename 'Dockerfile'
+        }
+    }
+    environment {
+        TF_IN_AUTOMATION = 'true'
+        HOME = '${WORKSPACE}'
+    }
+    stages {
+        stage('terraform init') {
+            steps {
+                withCredentials([
+                    file(credentialsId: 'gcp_credentials', variable: 'GOOGLE_APPLICATION_CREDENTIALS'),
+                    file(credentialsId: 'aws_credentials', variable: 'AWS_SHARED_CREDENTIALS_FILE')
+                ]) {
+                    sh 'terraform init'
+                }
+            }
+        }
+        stage('select ops workspace') {
+            steps {
+                withCredentials([
+                    file(credentialsId: 'gcp_credentials', variable: 'GOOGLE_APPLICATION_CREDENTIALS'),
+                    file(credentialsId: 'aws_credentials', variable: 'AWS_SHARED_CREDENTIALS_FILE')
+                ]) {
+                    sh 'terraform workspace select ops'
+                }
+            }
+            when {
+                not {
+                    tag comparator: 'REGEXP', pattern: '^apps-deploy-.*$'
+                }
+            }
+        }
+        stage('select apps workspace') {
+            steps {
+                withCredentials([
+                    file(credentialsId: 'gcp_credentials', variable: 'GOOGLE_APPLICATION_CREDENTIALS'),
+                    file(credentialsId: 'aws_credentials', variable: 'AWS_SHARED_CREDENTIALS_FILE')
+                ]) {
+                    sh 'terraform workspace select apps'
+                }
+            }
+            when {
+                tag comparator: 'REGEXP', pattern: '^apps-deploy-.*$'
+            }
+        }
+        stage('terraform plan') {
+            steps {
+                withCredentials([
+                    file(credentialsId: 'gcp_credentials', variable: 'GOOGLE_APPLICATION_CREDENTIALS'),
+                    file(credentialsId: 'aws_credentials', variable: 'AWS_SHARED_CREDENTIALS_FILE')
+                ]) {
+                    sh 'terraform plan -out=tfplan -input=false'
+                }
+            }
+        }
+        stage('terraform apply') {
+            steps {
+                withCredentials([
+                    file(credentialsId: 'gcp_credentials', variable: 'GOOGLE_APPLICATION_CREDENTIALS'),
+                    file(credentialsId: 'aws_credentials', variable: 'AWS_SHARED_CREDENTIALS_FILE')
+                ]) {
+                    sh 'terraform apply -input=false tfplan'
+                }
+            }
+
+            // we always run terraform plan against ops to give developer
+            // feedback, but we only apply master to ops
+            // or matching tags to apps
+            when {
+                anyOf {
+                    branch 'master'
+                    tag comparator: 'REGEXP', pattern: '^apps-deploy-.*$'
+                }
+            }
+        }
+    }
+}
+
