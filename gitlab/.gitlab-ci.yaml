@@ -1,0 +1,70 @@
+image: <image-registry>/kbst-infra-automation:bootstrap
+
+# Cache the terraform environment
+cache:
+  paths:
+    - .terraform
+
+# Set terraform recommended environment variables
+variables:
+  TF_IN_AUTOMATION: "true"
+
+# Create a Directory for artifacts specific to commit
+before_script:
+  - mkdir -p $CI_COMMIT_SHA
+
+# Defines all the stages of the pipeline
+stages:
+  - select_environment_ops
+  - select_environment_apps
+  - plan
+  - deploy
+
+# When running on any branches make sure to run against the ops cluster
+select_environment_ops:
+    stage: select_environment_ops
+    script:
+      - terraform init --input=false
+      - terraform workspace select ops
+    only:
+    - branches
+
+# When running on an apps-deploy tag run against the apps cluster
+select_environment_apps:
+    stage: select_environment_apps
+    script:
+      - terraform init --input=false
+      - terraform workspace select apps
+    only:
+    - /^app-deploy-.*/
+    except:
+    - branches
+
+# Plan the terraform and save the output as an artifact for the apply stage
+# This is run regardless of apps or ops
+plan:
+    stage: plan
+    script: terraform plan --input=false --out=$CI_COMMIT_SHA/tfplan
+    dependencies:
+      - select_environment_ops
+      - select_environment_apps
+    artifacts:
+      paths:
+      - $CI_COMMIT_SHA
+      - clusters
+
+# Deploy the plan to the specified environment
+# This plan will only be applied to the ops cluster on the master branch when approved
+# and will only be applied to the apps cluster when a tag of apps-deploy is set when approved
+deploy:
+    stage: deploy
+    before_script:
+      - gcloud auth activate-service-account --key-file=$GOOGLE_APPLICATION_CREDENTIALS
+    script: terraform apply --input=false $CI_COMMIT_SHA/tfplan
+    dependencies:
+      - select_environment_ops
+      - select_environment_apps
+      - plan
+    only:
+    - master
+    - /^app-deploy-.*/
