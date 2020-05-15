@@ -1,0 +1,127 @@
+pr: none
+
+trigger:
+  branches:
+    include:
+    - "*"
+  tags:
+    include:
+    - "apps-deploy-*"
+
+
+variables:
+  kbst_docker_args: --rm -v $(Build.Repository.LocalPath):/infra
+  kbst_docker_image: kbst:$(Build.SourceVersion)
+
+pool:
+  vmImage: 'Ubuntu-18.04'
+
+jobs:
+- job: GitOps
+
+  steps:
+
+  #
+  #
+  # Build image
+  - script: |
+      docker build \
+        -t $(kbst_docker_image) \
+        .
+    name: build_image
+
+  #
+  #
+  # Authenticate cloud providers
+  - script: |
+      docker run \
+        $(kbst_docker_args) \
+        -e KBST_AUTH_AWS \
+        -e KBST_AUTH_AZ \
+        -e KBST_AUTH_GCLOUD \
+        $(kbst_docker_image)
+    name: authenticate
+    env:
+      TF_IN_AUTOMATION: true
+      KBST_AUTH_AWS: $(KBST_AUTH_AWS)
+      KBST_AUTH_AZ: $(KBST_AUTH_AZ)
+      KBST_AUTH_GCLOUD: $(KBST_AUTH_GCLOUD)
+
+  #
+  #
+  # Terraform init
+  - script: |
+      docker run \
+        $(kbst_docker_args) \
+        $(kbst_docker_image) \
+        terraform init
+    name: terraform_init
+    env:
+      TF_IN_AUTOMATION: true
+
+  #
+  #
+  # Terraform workspace select
+  - script: |
+      docker run \
+        $(kbst_docker_args) \
+        $(kbst_docker_image) \
+        terraform workspace select ops
+    condition: eq(startsWith(variables['Build.SourceBranch'], 'refs/tags/apps-deploy-'), false)
+    name: terraform_workspace_ops
+    env:
+      TF_IN_AUTOMATION: true
+
+  - script: |
+      docker run \
+        $(kbst_docker_args) \
+        $(kbst_docker_image) \
+        terraform workspace select apps
+    condition: startsWith(variables['Build.SourceBranch'], 'refs/tags/apps-deploy-')
+    name: terraform_workspace_apps
+    env:
+      TF_IN_AUTOMATION: true
+
+  #
+  #
+  # Terraform plan
+  - script: |
+      docker run \
+        $(kbst_docker_args) \
+        $(kbst_docker_image) \
+        terraform plan
+    name: terraform_plan
+    env:
+      TF_IN_AUTOMATION: true
+
+  #
+  #
+  # Terraform apply
+  - script: |
+      docker run \
+        $(kbst_docker_args) \
+        $(kbst_docker_image) \
+        terraform apply
+    condition: or(eq(variables['Build.SourceBranch'], 'refs/heads/master'), startsWith(variables['Build.SourceBranch'], 'refs/tags/apps-deploy-'))
+    name: terraform_apply
+    env:
+      TF_IN_AUTOMATION: true
+
+  #
+  #
+  # Terraform plan against apps workspace
+  # after applying to ops,
+  # run plan against apps
+  - script: |
+      docker run \
+        $(kbst_docker_args) \
+        $(kbst_docker_image) \
+        terraform workspace select apps
+      docker run \
+        $(kbst_docker_args) \
+        $(kbst_docker_image) \
+        terraform plan
+    condition: eq(variables['Build.SourceBranch'], 'refs/heads/master')
+    name: terraform_plan_apps
+    env:
+      TF_IN_AUTOMATION: true
