@@ -1,0 +1,100 @@
+name: deploy
+on:
+  push:
+    branches:
+    - "*"  # run for branches
+    tags:
+    - "*"  # run for tags
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      TF_IN_AUTOMATION: true
+      KBST_DOCKER_ARGS: --rm -v ${{ github.workspace }}:/infra
+      KBST_DOCKER_IMAGE: kbst:${{ github.sha }}
+    steps:
+    - uses: actions/checkout@v1
+    #
+    #
+    # Build image
+    - name: Build image
+      env:
+        DOCKER_BUILDKIT: 1
+      run: docker build -t $KBST_DOCKER_IMAGE ci-cd/
+    #
+    #
+    # Authenticate cloud providers
+    - name: Authenticate providers
+      env:
+        KBST_AUTH_AWS: ${{ secrets.KBST_AUTH_AWS }}
+        KBST_AUTH_AZ: ${{ secrets.KBST_AUTH_AZ }}
+        KBST_AUTH_GCLOUD: ${{ secrets.KBST_AUTH_GCLOUD }}
+      run: |
+        docker run \
+            $KBST_DOCKER_ARGS \
+            -e KBST_AUTH_AWS \
+            -e KBST_AUTH_AZ \
+            -e KBST_AUTH_GCLOUD \
+            $KBST_DOCKER_IMAGE
+    #
+    #
+    # Terraform init
+    - name: Terraform init
+      run: |
+        docker run \
+            $KBST_DOCKER_ARGS \
+            $KBST_DOCKER_IMAGE \
+          terraform init
+    #
+    #
+    # Select ops or apps workspace
+    - name: Select ops workspace
+      if: startsWith(github.ref, 'refs/tags/apps-deploy-') == false
+      run: |
+        docker run \
+            $KBST_DOCKER_ARGS \
+            $KBST_DOCKER_IMAGE \
+          terraform workspace select ops
+    - name: Select apps workspace
+      if: startsWith(github.ref, 'refs/tags/apps-deploy-')
+      run: |
+        docker run \
+            $KBST_DOCKER_ARGS \
+            $KBST_DOCKER_IMAGE \
+          terraform workspace select apps
+    #
+    #
+    # Terraform plan against current workspace
+    - name: Terraform plan
+      run: |
+        docker run \
+            $KBST_DOCKER_ARGS \
+            $KBST_DOCKER_IMAGE \
+          terraform plan --out=tfplan --input=false
+    #
+    #
+    # Terraform apply against current workspace
+    # for master branch or apps-deploy tag
+    - name: Terraform apply
+      if: github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/apps-deploy-')
+      run: |
+        docker run \
+            $KBST_DOCKER_ARGS \
+            $KBST_DOCKER_IMAGE \
+          terraform apply --input=false tfplan
+    #
+    #
+    # Terraform plan against apps workspace
+    # after applying to ops,
+    # run plan against apps
+    - name: Terraform plan
+      if: github.ref == 'refs/heads/master'
+      run: |
+        docker run \
+            $KBST_DOCKER_ARGS \
+            $KBST_DOCKER_IMAGE \
+          terraform workspace select apps
+        docker run \
+            $KBST_DOCKER_ARGS \
+            $KBST_DOCKER_IMAGE \
+          terraform plan --out=tfplan --input=false
