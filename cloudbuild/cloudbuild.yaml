@@ -1,0 +1,63 @@
+options:
+  env:
+  - TF_IN_AUTOMATION=1
+
+
+steps:
+#
+#
+# Build image
+- id: docker build
+  name: 'gcr.io/cloud-builders/docker'
+  args:
+  - build
+  - -t
+  - kbst:$BUILD_ID
+  - .
+
+
+#
+#
+# Terraform init
+- id: terraform init
+  name: 'kbst:$BUILD_ID'
+  args:
+  - terraform
+  - init
+  - --input=false
+
+
+#
+#
+# Terraform select workspace
+- id: terraform workspace
+  name: 'kbst:$BUILD_ID'
+  args:
+  - terraform
+  - workspace
+  - select
+  - ops
+
+
+#
+#
+# Terraform plan
+- id: terraform plan
+  name: 'kbst:$BUILD_ID'
+  args:
+  - terraform
+  - plan
+  - --input=false
+  - --out=tfplan
+
+
+#
+#
+# Terraform apply
+- id: terraform apply
+  name: 'kbst:$BUILD_ID'
+  args:
+  - terraform
+  - apply
+  - --input=false
+  - tfplan
