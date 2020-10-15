@@ -1,0 +1,99 @@
+variables:
+  TF_IN_AUTOMATION: "true"
+  KBST_DOCKER_IMAGE: registry.gitlab.com/demo-inc/cloud-automation/kbst:$CI_COMMIT_SHA
+
+image: $KBST_DOCKER_IMAGE
+
+cache:
+  paths:
+    - .terraform
+
+stages:
+  - build
+  - deploy
+  - authenticate
+  - init
+  - workspace
+  - plan
+  - apply
+  - apps_plan
+
+
+#
+#
+# Build image
+build:
+  stage: build
+  image: docker:19.03.12
+  services:
+    - docker:19.03.12-dind
+  variables:
+    DOCKER_BUILDKIT: 1
+  script:
+    - docker build -t $KBST_DOCKER_IMAGE .
+    - echo $DOCKER_PASSWORD | docker login registry.gitlab.com --username $DOCKER_USERNAME --password-stdin
+    - docker push $KBST_DOCKER_IMAGE
+
+
+#
+#
+# Terraform init
+init:
+    stage: init
+    script: terraform init --input=false
+
+
+#
+#
+# Select ops or apps workspace
+select_ops:
+    stage: workspace
+    only:
+      - branches
+    script: terraform workspace select ops
+
+select_apps:
+  stage: workspace
+  only:
+    - /^apps-deploy-.*/
+  except:
+    - branches
+  script: terraform workspace select apps
+
+
+#
+#
+# Terraform plan against current workspace
+plan:
+  stage: plan
+  only:
+    - branches
+  except:
+    - master
+  script: terraform plan --out=tfplan --input=false
+
+
+#
+#
+# Terraform apply against current workspace
+# for master branch or apps-deploy tag
+apply:
+  stage: apply
+  only:
+    - master
+    - /^apps-deploy-.*/
+  script: terraform apply --input=false --auto-approve
+
+
+#
+#
+# Terraform plan against apps workspace
+# after applying to ops,
+# run plan against apps
+apps_plan:
+    stage: apps_plan
+    only:
+      - master
+    script:
+      - terraform workspace select apps
+      - terraform plan --out=tfplan --input=false
