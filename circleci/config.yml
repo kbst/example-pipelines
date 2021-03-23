@@ -1,0 +1,94 @@
+version: 2.1
+
+workflows:
+  gitops:
+    jobs:
+    - run:
+        filters:
+          tags:
+            only: /apps-deploy-.*/
+
+jobs:
+  run:
+    machine: true
+    steps:
+    - checkout
+
+    #
+    #
+    # Build image
+    - run:
+        name: build image
+        command: docker build -t kbst:${CIRCLE_SHA1} .
+
+    #
+    #
+    # Authenticate and initialize
+    - kbst_docker_run:
+        authenticate: true
+        args: terraform init
+
+    #
+    #
+    # Select ops or apps workspace
+    - when:
+          condition:
+            not:
+              equal: [ /apps-deploy-.*/, << pipeline.git.tag >> ]
+          steps:
+            - kbst_docker_run:
+                args: terraform workspace select ops
+    
+    - when:
+          condition: 
+            equal: [ /apps-deploy-.*/, << pipeline.git.tag >> ]
+          steps:
+            - kbst_docker_run:
+                args: terraform workspace select apps
+    
+    #
+    #
+    # Terraform plan against current workspace
+    - kbst_docker_run:
+        args: terraform plan --out=tfplan --input=false
+
+
+    #
+    #
+    # Terraform apply against current workspace
+    # for main branch or apps-deploy tag
+    - when:
+          condition:
+            or: 
+              - equal: [ main, << pipeline.git.branch >> ]
+              - equal: [ /apps-deploy-.*/, << pipeline.git.tag >> ]
+          steps:
+            - kbst_docker_run:
+                args: terraform apply --input=false tfplan
+
+    #
+    #
+    # Terraform plan against apps workspace
+    # after applying to ops,
+    # run plan against apps
+    - when:
+          condition: 
+            equal: [ main, << pipeline.git.branch >> ]
+          steps:
+            - kbst_docker_run:
+                args: terraform workspace select apps
+            - kbst_docker_run:
+                args: terraform plan --out=tfplan --input=false
+
+commands:
+  kbst_docker_run:
+    parameters:
+      authenticate:
+        default: false
+        type: boolean
+      args:
+        type: string
+    steps:
+    - run:
+        name: <<parameters.args>>
+        command: docker run --rm -v `pwd`:/infra<<# parameters.authenticate >> -e KBST_AUTH_AZ -e KBST_AUTH_AWS -e KBST_AUTH_GCLOUD<</ parameters.authenticate >> kbst:${CIRCLE_SHA1} <<parameters.args>>
