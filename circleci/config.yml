@@ -33,15 +33,13 @@ jobs:
     # Select ops or apps workspace
     - when:
           condition:
-            not:
-              equal: [ /apps-deploy-.*/, << pipeline.git.tag >> ]
+            not: << pipeline.git.tag >>
           steps:
             - kbst_docker_run:
                 args: terraform workspace select ops
     
     - when:
-          condition: 
-            equal: [ /apps-deploy-.*/, << pipeline.git.tag >> ]
+          condition: << pipeline.git.tag >>
           steps:
             - kbst_docker_run:
                 args: terraform workspace select apps
@@ -61,7 +59,7 @@ jobs:
           condition:
             or: 
               - equal: [ main, << pipeline.git.branch >> ]
-              - equal: [ /apps-deploy-.*/, << pipeline.git.tag >> ]
+              - << pipeline.git.tag >>
           steps:
             - kbst_docker_run:
                 args: terraform apply --input=false tfplan
