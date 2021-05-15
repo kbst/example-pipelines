@@ -1,6 +1,6 @@
 variables:
   TF_IN_AUTOMATION: "true"
-  KBST_DOCKER_IMAGE: $DOCKER_ENV_CI_REGISTRY_IMAGE:$CI_COMMIT_SHA
+  KBST_DOCKER_IMAGE: "${CI_REGISTRY_IMAGE}:${CI_COMMIT_SHA}"
 
 image: $KBST_DOCKER_IMAGE
 
@@ -30,7 +30,7 @@ build:
   variables:
     DOCKER_BUILDKIT: 1
   script:
-    - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
+    - echo $CI_REGISTRY_PASSWORD | docker login $CI_REGISTRY --username $CI_REGISTRY_USER --password-stdin
     - docker build -t $KBST_DOCKER_IMAGE .
     - docker push $KBST_DOCKER_IMAGE
 
