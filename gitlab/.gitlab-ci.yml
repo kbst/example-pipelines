@@ -1,6 +1,6 @@
 variables:
   TF_IN_AUTOMATION: "true"
-  KBST_DOCKER_IMAGE: registry.gitlab.com/demo-inc/cloud-automation/kbst:$CI_COMMIT_SHA
+  KBST_DOCKER_IMAGE: "${CI_REGISTRY_IMAGE}:${CI_COMMIT_SHA}"
 
 image: $KBST_DOCKER_IMAGE
 
@@ -30,8 +30,8 @@ build:
   variables:
     DOCKER_BUILDKIT: 1
   script:
+    - echo $CI_REGISTRY_PASSWORD | docker login $CI_REGISTRY --username $CI_REGISTRY_USER --password-stdin
     - docker build -t $KBST_DOCKER_IMAGE .
-    - echo $DOCKER_PASSWORD | docker login registry.gitlab.com --username $DOCKER_USERNAME --password-stdin
     - docker push $KBST_DOCKER_IMAGE
 
 
